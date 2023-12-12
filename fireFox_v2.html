@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html>
+<style>
+
+* {
+  font-family: Verdana;
+}
+
+input, textarea {
+  font-family: monospace;
+  font-size: 25px;
+}
+
+span {
+  font-size: 20px;
+}
+
+.dim {
+  width: 30px;
+}
+
+button {
+  font-size: 20px;
+  padding: 4px 20px;
+}
+
+.top {
+  vertical-align: top;
+}
+
+#outFile {
+  width: 300px;
+  height: 300px;
+}
+
+#outArray {
+  width: 300px;
+  height: 40px;
+}
+
+#name {
+  width: 130px;
+}
+
+.preview {
+  display: inline-block;
+  margin: 0px 5px;
+  position: relative;
+}
+
+.preview canvas {
+  cursor: pointer;
+}
+
+.preview .remove {
+  float: right;
+  cursor: pointer;
+}
+
+#main {
+  display: flex;
+}
+
+#saves {
+  flex-grow: 1;
+  margin-left: 100px;
+}
+
+#outAll {
+  width: 1200px;
+  height: 300px;
+}
+
+</style>
+
+<div id="main">
+  <div id="editor">
+    <span>Dimensions: </span>
+    <input class="dim" id="m" value="10"></input>
+    <span>x</span>
+    <input class="dim" id="n" value="10"></input>
+    <button id="applyBtn">Apply</button> <br>
+    <span>Name: </span>
+    <input id="name"></input>
+    <button id="saveBtn">Save</button>
+    <button id="resetBtn">Reset</button> <br>
+    <span id="counter">Counter: </span> <br>
+    <canvas id="mainCanvas"></canvas> <br>
+    <input style="" id="outArray"></input>
+    <button id="arrayCopyBtn">Copy</button> <br>
+    <textarea id="outFile"></textarea>
+    <button class="top" id="matrixDownloadBtn">Download</button> <br>
+    <span>A to add line, D to delete</span> <br>
+    <textarea id="outAll"></textarea>
+  </div>
+  <div id="saves"></div>
+</div>
+
+<script>
+
+class Table {
+  constructor(matrix, tileSize, canvas) {
+    this.matrix = matrix;
+    this.m = matrix[0].length;
+    this.n = matrix.length;
+    this.tileSize = tileSize;
+    this.canvas = canvas;
+    this.canvas.width = tileSize * this.m;
+    this.canvas.height = tileSize * this.n;
+    this.ctx = canvas.getContext("2d");
+  }
+
+  draw() {
+    this.ctx.strokeStyle = "#202020";
+    this.ctx.lineWidth = this.tileSize / 10;
+    for (let y = 0; y < this.n; y++) {
+      for (let x = 0; x < this.m; x++) {
+        if (this.matrix[y][x] === 1) this.ctx.fillStyle = "pink";
+        else this.ctx.fillStyle = "black";
+        this.ctx.strokeRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+        this.ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+      }
+    }
+    this.ctx.strokeRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  save(name) {
+    localStorage.setItem(name, JSON.stringify(this.matrix));
+  }
+
+  setTile(x, y, newVal) {
+    this.matrix[Math.floor(y / this.tileSize)][Math.floor(x / this.tileSize)] = newVal;
+    this.draw();
+  }
+}
+
+class Zip { // stolen from https://github.com/pwasystem/zip/
+	constructor(name) {
+		this.name = name;
+		this.zip = [];
+		this.file = [];
+	}
+
+  dec2bin = (dec, size) => dec.toString(2).padStart(size, "0");
+  str2dec = str => Array.from(new TextEncoder().encode(str));
+  str2hex = str => [...new TextEncoder().encode(str)].map(x => x.toString(16).padStart(2, "0"));
+  hex2buf = hex => new Uint8Array(hex.split(" ").map(x => parseInt(x, 16)));
+  bin2hex = bin => (parseInt(bin.slice(8), 2).toString(16).padStart(2, "0") + " " + parseInt(bin.slice(0, 8), 2).toString(16).padStart(2, "0"));
+
+  reverse = hex => {
+    const hexArray = [];
+    for (let i = 0; i < hex.length; i = i + 2) hexArray[i] = hex[i] + "" + hex[i + 1];
+    return hexArray.filter((a) => a).reverse().join(" ");
+  }
+
+  crc32 = r => {
+    for (var a, o = [], c = 0; c < 256; c++) {
+      a = c;
+      for (var f = 0; f < 8; f++) a = 1 & a ? 3988292384 ^ a >>> 1 : a >>> 1;
+      o[c] = a;
+    }
+    for (var n = -1, t = 0; t < r.length; t++) n = n >>> 8 ^ o[255 & (n ^ r[t])];
+    return this.reverse(((-1 ^ n) >>> 0).toString(16).padStart(8, "0"));
+  }
+
+  str2zip(name, str) {
+    const uint = [...new Uint8Array(this.str2dec(str))];
+    uint.name = name;
+    uint.modTime = new Date();
+    uint.fileUrl = name;
+    this.zip[name] = uint;
+  }
+
+  makeZip() {
+    let count = 0,
+        centralDirectoryFileHeader = "",
+        directoryInit = 0,
+        offSetLocalHeader = "00 00 00 00";
+
+    for (const name in this.zip) {
+      const modTime = () => {
+        const lastMod = new Date(this.zip[name].modTime),
+              hour = this.dec2bin(lastMod.getHours(), 5),
+              minutes = this.dec2bin(lastMod.getMinutes(), 6),
+              seconds = this.dec2bin(Math.round(lastMod.getSeconds() / 2), 5),
+              year = this.dec2bin(lastMod.getFullYear() - 1980, 7),
+              month = this.dec2bin(lastMod.getMonth() + 1, 4),
+              day = this.dec2bin(lastMod.getDate(), 5);
+        return this.bin2hex(`${hour}${minutes}${seconds}`) + " " + this.bin2hex(`${year}${month}${day}`);
+      }
+
+      const crc = this.crc32(this.zip[name]),
+            size = this.reverse(parseInt(this.zip[name].length).toString(16).padStart(8, "0")),
+            nameFile = this.str2hex(this.zip[name].fileUrl).join(" "),
+            nameSize = this.reverse(this.zip[name].fileUrl.length.toString(16).padStart(4, "0")),
+            fileHeader = `50 4B 03 04 14 00 00 00 00 00 ${modTime()} ${crc} ${size} ${size} ${nameSize} 00 00 ${nameFile}`,
+            fileHeaderBuffer = this.hex2buf(fileHeader);
+
+      directoryInit += fileHeaderBuffer.length + this.zip[name].length;
+      centralDirectoryFileHeader += `50 4B 01 02 14 00 14 00 00 00 00 00 ${modTime()} ${crc} ${size} ${size} ${nameSize} 00 00 00 00 00 00 01 00 20 00 00 00 ${offSetLocalHeader} ${nameFile} `;
+      offSetLocalHeader = this.reverse(directoryInit.toString(16).padStart(8, "0"));
+      this.file.push(fileHeaderBuffer, new Uint8Array(this.zip[name]));
+      count++;
+    }
+
+    centralDirectoryFileHeader = centralDirectoryFileHeader.trim();
+
+    const entries = this.reverse(count.toString(16).padStart(4, "0")),
+          dirSize = this.reverse(centralDirectoryFileHeader.split(" ").length.toString(16).padStart(8, "0")),
+          dirInit = this.reverse(directoryInit.toString(16).padStart(8, "0")),
+          centralDirectory = `50 4b 05 06 00 00 00 00 ${entries} ${entries} ${dirSize} ${dirInit} 00 00`;
+
+    this.file.push(this.hex2buf(centralDirectoryFileHeader), this.hex2buf(centralDirectory));
+
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([...this.file], { type: "application/octet-stream" }));
+    a.download = `${this.name}.zip`;
+    a.click();
+  }
+}
+
+const mainCanvas = document.querySelector("#mainCanvas");
+
+const defaultTileSize = 50;
+let m = 10, n = 10, counter = 0;
+
+let table;
+let color = 1;
+
+const parseAsArray = matrix => matrix.map(line => line.join(",")).join(",");
+const parseAsFile = matrix => matrix.reduce((accum, line) => accum + line.join(";") + "\n", "");
+
+const sleep = ms => new Promise(res => setTimeout(res, ms));
+
+reset();
+
+function reset() {
+  const emptyMatrix = [ ...new Array(n) ].map(() => [ ...new Array(m).fill(0) ]);
+  load(emptyMatrix, document.querySelector("#name").value);
+}
+
+function load(matrix, name) {
+  document.querySelector("#name").value = name;
+  table = new Table(matrix, defaultTileSize, mainCanvas, name);
+  table.draw();
+  extract();
+}
+
+function extract() {
+  document.querySelector("#outFile").value = parseAsFile(table.matrix);
+  document.querySelector("#outArray").value = parseAsArray(table.matrix);
+}
+
+function copy(txt) {
+  navigator.clipboard.writeText(txt);
+}
+
+async function download(name, text) {
+  const element = document.createElement("a");
+  element.href = "data:text/plain;charset=utf-8," + encodeURIComponent(text);
+  element.download = `${name || "blank"}.csv`;
+  element.style.display = "none";
+  document.body.appendChild(element);
+  element.click();
+  await sleep(100);
+  document.body.removeChild(element);
+}
+
+async function downloadAll() {
+  // Object.keys(localStorage)
+  //   .sort()
+  //   .forEach(async (name, i) => {
+  //     // await sleep(i * 1000);
+  //     download(name, localStorage[name]);
+  //   });
+
+  z = new Zip("matrices");
+
+  Object.keys(localStorage)
+    .sort()
+    .forEach(async (name, i) => z.str2zip(`${name || "blank"}.csv`, parseAsFile(JSON.parse(localStorage[name]))));
+
+  z.makeZip();
+}
+
+function apply() {
+  const newM = +document.querySelector("#m").value;
+  const newN = +document.querySelector("#n").value;
+  if (Number.isInteger(newM)) m = newM;
+  if (Number.isInteger(newN)) n = newN;
+  reset();
+}
+
+function saveMatrix() {
+  table.save(document.querySelector("#name").value);
+  loadSaves();
+}
+
+loadSaves();
+
+function loadSaves() {
+  document.querySelector("#saves").innerHTML = "";
+
+  if (Object.keys(localStorage).length > 0) {
+    const donwloadAllBtn = document.createElement("button");
+    donwloadAllBtn.innerText = "Download all saves";
+    donwloadAllBtn.addEventListener("click", downloadAll);
+
+    const br = document.createElement("br");
+
+    document.querySelector("#saves").append(donwloadAllBtn);
+    document.querySelector("#saves").append(br);
+  }
+
+  Object.keys(localStorage)
+    .sort()
+    .forEach(name => {
+      const matrix = JSON.parse(localStorage[name]);
+      if (!matrix) return;
+
+      const cont = document.createElement("div");
+      cont.classList.add("preview");
+
+      const title = document.createElement("span");
+      title.innerText = name;
+
+      const canvas = document.createElement("canvas");
+      canvas.title = "Load save";
+      canvas.addEventListener("click", () => load(matrix, name));
+      const localTable = new Table(matrix, 15, canvas, name);
+      localTable.draw();
+
+      const remove = document.createElement("span");
+      remove.classList.add("remove");
+      remove.innerText = "❌";
+      remove.title = "Remove save";
+      remove.addEventListener("click", () => {
+        localStorage.removeItem(name);
+        loadSaves();
+      });
+
+      const br = document.createElement("br");
+
+      cont.appendChild(title);
+      cont.appendChild(remove);
+      cont.appendChild(br);
+      cont.appendChild(canvas);
+
+      document.querySelector("#saves").appendChild(cont);
+    });
+}
+
+function invertTile(e) {
+  table.setTile(e.offsetX, e.offsetY, color);
+  extract();
+}
+mainCanvas.addEventListener("mousedown", e => {
+  color = 1 - table.matrix[Math.floor(e.offsetY / defaultTileSize)][Math.floor(e.offsetX / defaultTileSize)];
+  invertTile(e);
+  mainCanvas.addEventListener("mousemove", invertTile);
+});
+mainCanvas.addEventListener("mouseup", e => mainCanvas.removeEventListener("mousemove", invertTile));
+
+document.querySelector("#resetBtn").addEventListener("click", () => reset());
+document.querySelector("#applyBtn").addEventListener("click", () => apply());
+document.querySelector("#saveBtn").addEventListener("click", () => saveMatrix());
+document.querySelector("#matrixDownloadBtn").addEventListener("click", () => download(document.querySelector("#name").value, parseAsFile(table.matrix)));
+document.querySelector("#arrayCopyBtn").addEventListener("click", () => copy(parseAsArray(table.matrix)));
+
+document.addEventListener('keydown', (event) => {
+  var name = event.key;
+  var code = event.code;
+  if (code == "KeyA")
+  {
+    counter += 1;
+    document.querySelector("#counter").innerHTML = "Counter: " + counter;
+    document.querySelector("#outAll").value = document.querySelector("#outAll").value + document.querySelector("#outArray").value + "\n";
+    reset();
+  }
+  if (code == "KeyD")
+  {
+    counter -= 1;
+    document.querySelector("#counter").innerHTML = "Counter: " + counter;
+    document.querySelector("#outAll").value = document.querySelector("#outAll").value + document.querySelector("#outArray").value + "\n";
+    reset();
+  }
+}, false);
+
+</script>
+</html>
