@@ -91,7 +91,7 @@ button {
     <button id="arrayDisplayBtn">Display</button> <br>
     <textarea id="outFile"></textarea>
     <button class="top" id="matrixDownloadBtn">Download</button> <br>
-    <span>A to add line, D to delete</span> <br>
+    <span>Q to add line, D to delete</span> <br>
     <textarea readonly id="outAll"></textarea>
   </div>
   <div id="saves"></div>
@@ -388,7 +388,7 @@ document.querySelector("#arrayDisplayBtn").addEventListener("click", () => displ
 document.addEventListener('keydown', (event) => {
   var name = event.key;
   var code = event.code;
-  if (code == "KeyA")
+  if (code == "KeyQ")
   {
     counter += 1;
     document.querySelector("#counter").innerHTML = "Counter: " + counter;
